@@ -1,61 +1,97 @@
+# agent.py
 import ollama
 import json
-from tools import safe_calculate
 
-tools = [
-    {
-        "type": "function",
-        "function": {
-            "name": "calculate",
-            "description": "Mathematische Berechnung",
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "expression": {"type": "string"}
-                },
-                "required": ["expression"]
-            }
-        }
-    }
-]
+from tools import calculate, save_memory, load_memory, is_valid_calculation
+from schemy import get_schema
 
-available_functions = {
-    "calculate": safe_calculate
+
+SYSTEM_PROMPT = """
+Du bist ein Multi-Step AI Agent.
+
+TOOLS:
+- calculate(expression)
+- save_memory(text)
+- load_memory()
+
+ARBEITSWEISE:
+1. Denke (thought)
+2. Wähle Tool
+3. Führe aus
+4. Wiederhole bis fertig
+
+Wenn fertig:
+→ tool = "none"
+→ final setzen
+"""
+
+
+TOOLS = {
+    "calculate": calculate,
+    "save_memory": save_memory,
+    "load_memory": load_memory
 }
 
-conversation = [
-    {
-        "role": "system",
-        "content": "Du bist ein AI-Agent. Nutze Tools wenn nötig."
-    }
-]
 
 def run_agent(user_input):
-    conversation.append({"role": "user", "content": user_input})
 
-    for _ in range(5):
+    messages = [
+        {"role": "system", "content": SYSTEM_PROMPT},
+        {"role": "system", "content": get_schema()},
+        {"role": "user", "content": user_input}
+    ]
+
+    max_steps = 5
+
+    for step in range(max_steps):
+
         response = ollama.chat(
             model="mistral",
-            messages=conversation,
-            tools=tools
+            messages=messages,
+            options={"temperature": 0}
         )
 
-        message = response["message"]
+        output = response["message"]["content"]
+        print(f"\nSTEP {step+1} RAW:", output)
 
-        if "tool_calls" in message:
-            for tool_call in message["tool_calls"]:
-                name = tool_call["function"]["name"]
-                args = json.loads(tool_call["function"]["arguments"])
+        # 🔥 JSON PARSE
+        try:
+            data = json.loads(output)
+        except:
+            return "❌ JSON Fehler"
 
-                result = available_functions[name](**args)
+        thought = data.get("thought")
+        tool = data.get("tool")
+        arg = data.get("input", "")
+        final = data.get("final", "")
 
-                conversation.append({
-                    "role": "tool",
-                    "content": result
-                })
+        print("🧠 Thought:", thought)
+
+        # ✅ FINAL
+        if tool == "none":
+            return final
+
+        # 🔧 TOOL EXECUTION
+        if tool == "calculate":
+            if not is_valid_calculation(arg):
+                return "❌ invalid calculation"
+
+            result = calculate(arg)
+
+        elif tool in TOOLS:
+            result = TOOLS[tool](arg)
+
         else:
-            reply = message["content"]
-            conversation.append({"role": "assistant", "content": reply})
-            return reply
+            return "❌ unknown tool"
 
-    return "Max steps erreicht"
+        print("🔧 Tool Result:", result)
+
+        # 🔁 Ergebnis zurück ins Modell
+        messages.append({
+            "role": "assistant",
+            "content": json.dumps({
+                "result": result
+            })
+        })
+
+    return "❌ Max Steps erreicht"
