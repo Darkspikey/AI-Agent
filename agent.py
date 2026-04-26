@@ -5,49 +5,29 @@ import re
 
 from tools import calculate, save_memory, load_memory, is_valid_calculation
 from schemy import get_schema
+from reflector import reflect
+
 
 SYSTEM_PROMPT = """
 Du bist ein Multi-Step AI Agent.
 
 WICHTIG:
-- IMMER JSON
-- NIEMALS normalen Text
-- NIEMALS erklären
+- IMMER EIN JSON
+- KEIN TEXT
 
 TOOLS:
-- calculate(expression) → NUR Python Syntax!
-
-REGELN FÜR calculate:
-- Verwende NUR:
-  sqrt(x)
-  + - * /
-- NIEMALS:
-  Math.sqrt
-  pow()
-  ^
-  oder andere Sprachen
-
-Beispiel:
-Richtig: sqrt(64)
-Falsch: Math.sqrt(64)
+- calculate
+- save_memory
+- load_memory
 
 FORMAT:
 
 {
   "thought": "...",
-  "tool": "calculate | save_memory | load_memory | none",
+  "tool": "...",
   "input": "...",
-  "final": "..."
+  "final": "..."sa
 }
-STOP REGEL:
-
-Wenn du das Ergebnis bereits kennst:
-→ KEIN Tool mehr verwenden
-→ tool = "none"
-→ final setzen
-
-VERBOTEN:
-- calculate erneut auf gleiche Eingabe
 
 Wenn fertig:
 → tool = "none"
@@ -60,25 +40,25 @@ TOOLS = {
     "load_memory": load_memory
 }
 
+
+def extract_first_json(text):
+    matches = re.findall(r"\{.*?\}", text, re.DOTALL)
+    for m in matches:
+        try:
+            return json.loads(m)
+        except:
+            continue
+    return None
+
+
 def normalize_expression(expr: str):
     expr = expr.replace("Math.sqrt", "sqrt")
     expr = expr.replace("^", "**")
     return expr
 
-def safe_json_parse(text):
-    try:
-        return json.loads(text)
-    except:
-        match = re.search(r"\{.*\}", text, re.DOTALL)
-        if match:
-            try:
-                return json.loads(match.group(0))
-            except:
-                return None
-        return None
-
 
 def run_agent(user_input):
+
     last_result = None
 
     messages = [
@@ -100,14 +80,11 @@ def run_agent(user_input):
         output = response["message"]["content"]
         print(f"\nSTEP {step+1} RAW:", output)
 
-        data = safe_json_parse(output)
+        data = extract_first_json(output)
 
         if not data:
-            print("⚠️ Kein JSON → Retry")
-            messages.append({
-                "role": "system",
-                "content": "FEHLER: Nur JSON antworten!"
-            })
+            print("⚠️ RESET")
+            messages = messages[:3]
             continue
 
         thought = data.get("thought")
@@ -116,10 +93,20 @@ def run_agent(user_input):
         final = data.get("final", "")
 
         print("🧠 Thought:", thought)
-      
-        if tool == "none":
-            return final
 
+        # 🔥 FINAL + REFLECTION
+        if tool == "none":
+
+            reflection = reflect(user_input, last_result, final)
+            print("🔍 Reflection:", reflection)
+
+            if reflection.get("correct"):
+                return final
+            else:
+                print("⚠️ Korrigiere Antwort...")
+                return reflection.get("fix", final)
+
+        # 🔧 TOOL
         if tool == "calculate":
 
             arg = normalize_expression(arg)
@@ -127,28 +114,30 @@ def run_agent(user_input):
             if not is_valid_calculation(arg):
                 messages.append({
                     "role": "system",
-                    "content": f"FEHLER: '{arg}' ist ungültig. Nutze nur sqrt(x) und + - * /"
+                    "content": f"FEHLER: {arg} ungültig"
                 })
                 continue
 
             result = calculate(arg)
 
-        elif tool in TOOLS:
-            result = TOOLS[tool](arg)
+        elif tool == "save_memory":
+            result = save_memory(arg)
+
+        elif tool == "load_memory":
+            result = load_memory()
 
         else:
             return "❌ unknown tool"
 
         print("🔧 Tool Result:", result)
 
-        # 🔥 LOOP BREAK
         if result == last_result:
             return result
         last_result = result
-        # 🔥 WICHTIGSTER FIX
+
         messages.append({
             "role": "user",
-            "content": f"TOOL RESULT: {result}. Wenn korrekt, beende mit tool='none'."
+            "content": f"TOOL RESULT: {result}"
         })
 
     return "❌ Max Steps erreicht"

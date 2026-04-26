@@ -2,18 +2,18 @@
 
 def get_schema():
     return """
-Du MUSST IMMER valides JSON zurückgeben.
+Du MUSST GENAU EIN JSON zurückgeben.
+
+VERBOTEN:
+- Mehrere JSON Objekte
+- Text außerhalb JSON
 
 FORMAT:
 
 {
-  "thought": "was du denkst",
+  "thought": "...",
   "tool": "calculate | save_memory | load_memory | none",
-  "input": "string",
-  "final": "string oder leer"
+  "input": "...",
+  "final": "..."
 }
-
-REGELN:
-- KEIN Text außerhalb JSON
-- IMMER JSON
 """
