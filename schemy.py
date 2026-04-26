@@ -15,7 +15,5 @@ FORMAT:
 
 REGELN:
 - KEIN Text außerhalb JSON
-- KEIN Markdown
 - IMMER JSON
-- Wenn Aufgabe fertig → tool = "none" + final setzen
 """
