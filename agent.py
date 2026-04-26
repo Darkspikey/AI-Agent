@@ -47,8 +47,17 @@ def extract_first_json(text):
         try:
             return json.loads(m)
         except:
-            continue
+              # Versuch 2: Häufige LLM-Fehler korrigieren (Backslashes)
+            try:
+                # Maskiert einfache Backslashes, außer sie sind bereits Teil einer validen Sequenz
+                fixed_str = m.replace('\\', '\\\\')
+                # Manchmal maskiert dies zu viel (z.B. \" zu \\"), das muss man ggf. feintunen
+                return json.loads(fixed_str)
+            except:
+                return None
     return None
+    # Findet alles zwischen der ersten { und der LETZTEN } im String   
+      
 
 
 def normalize_expression(expr: str):
